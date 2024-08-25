@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1">
+    <title>3D City Exploration</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #87CEEB, #FFFFFF);
+        }
+        #joystick-container, #joystick {
+            position: absolute;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+        #joystick-container {
+            bottom: 20px;
+            left: 20px;
+            width: 100px;
+            height: 100px;
+            background-color: rgba(0, 0, 0, 0.3);
+        }
+        #joystick {
+            width: 50px;
+            height: 50px;
+            left: 25px;
+            top: 25px;
+            position: absolute;
+        }
+        #money-display {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 20px;
+            color: white;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            margin-top: -10px;
+            margin-left: -10px;
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        #interaction-button {
+            display: none;
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            background-color: white;
+            border: 1px solid black;
+            cursor: pointer;
+            font-size: 18px;
+        }
+        #menu {
+            display: none;
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 200px;
+            padding: 20px;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+        }
+        #menu-close {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        #fire-button {
+            display: none;
+            position: absolute;
+            bottom: 100px;
+            right: 20px;
+            padding: 10px;
+            background-color: red;
+            color: white;
+            font-size: 18px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="joystick-container">
+        <div id="joystick"></div>
+    </div>
+    <div id="money-display">Money: 0</div>
+    <div id="crosshair"></div>
+    <div id="interaction-button">Open</div>
+    <div id="menu">
+        <div id="menu-close">X</div>
+        <p>Welcome to the Shop!</p>
+        <p><button id="buy-gun-button">Buy Gun - 15 Coins</button></p>
+        <p><button id="buy-rifle-button">Buy Rifle - 35 Coins</button></p>
+    </div>
+    <div id="fire-button">Fire</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Basic Setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true; // Enable shadow mapping
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+        document.body.appendChild(renderer.domElement);
+
+        // Sun (Directional Light)
+        const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+        sun.position.set(50, 100, -50);
+        sun.castShadow = true;
+        sun.shadow.mapSize.width = 1024;
+        sun.shadow.mapSize.height = 1024;
+        sun.shadow.camera.near = 0.5;
+        sun.shadow.camera.far = 500;
+        scene.add(sun);
+
+        // Sun visual representation (optional)
+        const sunGeometry = new THREE.SphereGeometry(5, 32, 32);
+        const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        const sunMesh = new THREE.Mesh(sunGeometry, sunMaterial);
+        sunMesh.position.copy(sun.position);
+        scene.add(sunMesh);
+
+        // Ground
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(2000, 2000),
+            new THREE.MeshLambertMaterial({ color: 0x32CD32 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Player Setup
+        const player = new THREE.Object3D();
+        player.position.set(0, 5, 0);
+        scene.add(player);
+
+        // Positioning the camera like in a first-person view
+        camera.position.set(0, 2, 0);
+        player.add(camera);
+
+        // Money System
+        let money = 0;
+        const moneyDisplay = document.getElementById('money-display');
+
+        function updateMoneyDisplay() {
+            moneyDisplay.innerText = `Money: ${money}`;
+        }
+
+        function deductMoney(amount) {
+            if (money >= amount) {
+                money -= amount;
+                updateMoneyDisplay();
+                return true;
+            } else {
+                alert("Not enough money!");
+                return false;
+            }
+        }
+
+        function earnMoney() {
+            money += 1;
+            updateMoneyDisplay();
+        }
+
+        setInterval(earnMoney, 10000); // Earn 1 coin every 10 seconds
+
+        // Create a house
+        function createBuilding(position) {
+            const building = new THREE.Group();
+            const wallsGroup = new THREE.Group();
+
+            const walls = new THREE.Mesh(
+                new THREE.BoxGeometry(50, 30, 50),
+                new THREE.MeshLambertMaterial({ color: 0xa0522d })
+            );
+            walls.castShadow = true;
+            wallsGroup.add(walls);
+
+            const roof = new THREE.Mesh(
+                new THREE.ConeGeometry(35, 20, 4),
+                new THREE.MeshLambertMaterial({ color: 0x8b0000 })
+            );
+            roof.position.y = 25;
+            roof.rotation.y = Math.PI / 4;
+            roof.castShadow = true;
+            building.add(roof);
+
+            // Bed inside the house
+            const bed = new THREE.Mesh(
+                new THREE.BoxGeometry(20, 5, 10),
+                new THREE.MeshLambertMaterial({ color: 0x00008b })
+            );
+            bed.position.set(-10, 2.5, -10);
+            bed.castShadow = true;
+            building.add(bed);
+
+            // Carpet inside the house
+            const carpet = new THREE.Mesh(
+                new THREE.PlaneGeometry(20, 20),
+                new THREE.MeshLambertMaterial({
+                    map: new THREE.TextureLoader().load('https://threejsfundamentals.org/threejs/resources/images/flower-1.jpg')
+                })
+            );
+            carpet.rotation.x = -Math.PI / 2;
+            carpet.position.set(0, 0.1, 0);
+            carpet.receiveShadow = true;
+            building.add(carpet);
+
+            building.add(wallsGroup); // Add walls group to building
+            building.position.copy(position);
+            scene.add(building);
+
+            return building;
+        }
+
+        // Create Mosque
+        function createMosque() {
+            const mosque = new THREE.Group();
+
+            // Dome
+            const dome = new THREE.Mesh(
+                new THREE.SphereGeometry(40, 32, 32),
+                new THREE.MeshLambertMaterial({ color: 0xD4AF37 })
+            );
+            dome.position.set(0, 50, 0);
+            dome.castShadow = true;
+            mosque.add(dome);
+
+            // Minaret
+            const minaret = new THREE.Mesh(
+                new THREE.CylinderGeometry(10, 10, 120, 32),
+                new THREE.MeshLambertMaterial({ color: 0xC0C0C0 })
+            );
+            minaret.position.set(-60, 60, 0);
+            minaret.castShadow = true;
+            mosque.add(minaret);
+
+            // Carpet inside the mosque
+            const carpet = new THREE.Mesh(
+                new THREE.PlaneGeometry(80, 120),
+                new THREE.MeshLambertMaterial({
+                    map: new THREE.TextureLoader().load('https://threejsfundamentals.org/threejs/resources/images/flower-1.jpg')
+                })
+            );
+            carpet.rotation.x = -Math.PI / 2;
+            carpet.position.set(0, 0.1, 0);
+            carpet.receiveShadow = true;
+            mosque.add(carpet);
+
+            // Mosque Walls
+            const walls = new THREE.Mesh(
+                new THREE.BoxGeometry(120, 40, 120),
+                new THREE.MeshLambertMaterial({ color: 0x8B4513 })
+            );
+            walls.castShadow = true;
+            mosque.add(walls);
+
+            mosque.position.set(200, 0, 0);
+            scene.add(mosque);
+
+            return mosque;
+        }
+
+        // Initialize Mosque and Houses
+        createMosque();
+        createBuilding(new THREE.Vector3(-100, 0, -100));
+        createBuilding(new THREE.Vector3(-200, 0, -100));
+
+        // Shop Structure with Non-Transparent Walls
+        const shop = new THREE.Mesh(
+            new THREE.BoxGeometry(100, 50, 100),
+            new THREE.MeshLambertMaterial({ color: 0x8B4513 })
+        );
+        shop.position.set(100, 25, 0);
+        shop.castShadow = true;
+        scene.add(shop);
+
+        // Cashier Dummy
+        const cashier = new THREE.Mesh(
+            new THREE.BoxGeometry(10, 30, 10),
+            new THREE.MeshLambertMaterial({ color: 0xFFD700 })
+        );
+        cashier.position.set(90, 15, 0);
+        cashier.castShadow = true;
+        scene.add(cashier);
+
+        // Gun and Rifle purchase and firing logic
+        let hasGun = false;
+        let hasRifle = false;
+        let canShoot = true;
+        const fireButton = document.getElementById('fire-button');
+        const interactionButton = document.getElementById('interaction-button');
+        const menu = document.getElementById('menu');
+        const menuClose = document.getElementById('menu-close');
+
+        document.getElementById('buy-gun-button').addEventListener('click', () => {
+            if (deductMoney(15)) {
+                hasGun = true;
+                fireButton.style.display = 'block';
+            }
+        });
+
+        document.getElementById('buy-rifle-button').addEventListener('click', () => {
+            if (deductMoney(35)) {
+                hasRifle = true;
+                fireButton.style.display = 'block';
+            }
+        });
+
+        fireButton.addEventListener('click', () => {
+            if (hasGun && canShoot) {
+                shootProjectile('gun');
+            } else if (hasRifle && canShoot) {
+                shootProjectile('rifle');
+            }
+        });
+
+        function shootProjectile(type) {
+            let projectile;
+
+            if (type === 'gun') {
+                // Red spherical projectile
+                projectile = new THREE.Mesh(
+                    new THREE.SphereGeometry(1, 8, 8),
+                    new THREE.MeshBasicMaterial({ color: 0xff0000 })
+                );
+                canShoot = false;
+                setTimeout(() => { canShoot = true; }, 1000); // 1-second cooldown for gun
+            } else if (type === 'rifle') {
+                // Blue line projectile
+                projectile = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.5, 0.5, 10, 8),
+                    new THREE.MeshBasicMaterial({ color: 0x0000ff })
+                );
+                projectile.rotation.x = Math.PI / 2; // Rotate to face forward
+                canShoot = false;
+                setTimeout(() => { canShoot = true; }, 300); // 0.3-second cooldown for rifle
+            }
+
+            projectile.position.copy(player.position);
+            projectile.position.y += 1; // Slightly above ground
+
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction);
+            projectile.velocity = direction.multiplyScalar(50); // Set the velocity
+
+            scene.add(projectile);
+
+            const animateProjectile = () => {
+                projectile.position.add(projectile.velocity.clone().multiplyScalar(1 / 60));
+                if (projectile.position.distanceTo(player.position) > 100) {
+                    scene.remove(projectile);
+                } else {
+                    requestAnimationFrame(animateProjectile);
+                }
+            };
+            animateProjectile();
+        }
+
+        // Shop Interaction Logic
+        let nearCashier = false;
+
+        function checkProximityToCashier() {
+            const distance = player.position.distanceTo(cashier.position);
+            if (distance < 20) {
+                if (!nearCashier) {
+                    nearCashier = true;
+                    interactionButton.style.display = 'block';
+                }
+            } else {
+                if (nearCashier) {
+                    nearCashier = false;
+                    interactionButton.style.display = 'none';
+                    menu.style.display = 'none';  // Ensure menu closes when moving away
+                }
+            }
+        }
+
+        interactionButton.addEventListener('click', () => {
+            menu.style.display = 'block';
+        });
+
+        menuClose.addEventListener('click', () => {
+            menu.style.display = 'none';
+        });
+
+        // Joystick Control
+        const joystickContainer = document.getElementById('joystick-container');
+        const joystick = document.getElementById('joystick');
+        let isDraggingJoystick = false, joystickStartX, joystickStartY;
+        let forwardSpeed = 0, sidewaysSpeed = 0;
+        const acceleration = 20; // Increased acceleration
+        const maxSpeed = 50; // Increased max speed
+
+        joystickContainer.addEventListener('touchstart', (e) => {
+            isDraggingJoystick = true;
+            const touch = e.touches[0];
+            joystickStartX = touch.clientX;
+            joystickStartY = touch.clientY;
+        });
+
+        joystickContainer.addEventListener('touchmove', (e) => {
+            if (!isDraggingJoystick) return;
+            const touch = e.touches[0];
+            let deltaX = touch.clientX - joystickStartX;
+            let deltaY = touch.clientY - joystickStartY;
+            const distance = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+            const maxDistance = 40;
+
+            if (distance > maxDistance) {
+                deltaX *= maxDistance / distance;
+                deltaY *= maxDistance / distance;
+            }
+
+            joystick.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+
+            // Calculate forward and sideways movement relative to the camera
+            forwardSpeed = deltaY * 1; // Increased speed multiplier
+            sidewaysSpeed = deltaX * 1; // Increased speed multiplier
+
+            // Clamp speed
+            forwardSpeed = Math.min(Math.max(forwardSpeed, -maxSpeed), maxSpeed);
+            sidewaysSpeed = Math.min(Math.max(sidewaysSpeed, -maxSpeed), maxSpeed);
+
+        });
+
+        joystickContainer.addEventListener('touchend', () => {
+            isDraggingJoystick = false;
+            joystick.style.transform = 'translate(0, 0)';
+            // Stop movement immediately when joystick is released
+            forwardSpeed = 0;
+            sidewaysSpeed = 0;
+        });
+
+        // Camera Control
+        let isDraggingCamera = false, prevTouchX, prevTouchY;
+
+        renderer.domElement.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            isDraggingCamera = true;
+            prevTouchX = touch.clientX;
+            prevTouchY = touch.clientY;
+        });
+
+        renderer.domElement.addEventListener('touchmove', (e) => {
+            if (!isDraggingCamera) return;
+            const touch = e.touches[0];
+            const deltaX = touch.clientX - prevTouchX;
+            const deltaY = touch.clientY - prevTouchY;
+
+            // Rotate player and camera together around the Y-axis (left/right rotation)
+            player.rotation.y -= deltaX * 0.01;
+
+            // Adjust camera pitch (up/down rotation)
+            camera.rotation.x -= deltaY * 0.01;
+            camera.rotation.x = Math.max(Math.min(camera.rotation.x, Math.PI / 4), -Math.PI / 4);
+
+            prevTouchX = touch.clientX;
+            prevTouchY = touch.clientY;
+        });
+
+        renderer.domElement.addEventListener('touchend', () => {
+            isDraggingCamera = false;
+        });
+
+        // Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Apply movement
+            const deltaTime = 1 / 60; // Assuming 60 FPS
+            player.translateZ(forwardSpeed * deltaTime);
+            player.translateX(sidewaysSpeed * deltaTime);
+
+            // Check proximity to cashier
+            checkProximityToCashier();
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Resize Event
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
